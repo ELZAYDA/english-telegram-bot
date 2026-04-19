@@ -4,7 +4,7 @@ using System.Text.Json;
 
 var telegramToken = Environment.GetEnvironmentVariable("TELEGRAM_TOKEN");
 var chatId = "5508459447";
-var openAiKey = Environment.GetEnvironmentVariable("OPENAI_KEY");
+var geminiKey = Environment.GetEnvironmentVariable("GEMINI_KEY");
 
 using var client = new HttpClient();
 
@@ -16,37 +16,50 @@ string prompt = hour < 12
     ? "Give short English conversation for beginner"
     : "Give a short paragraph and conversation for English learner";
 
+// 🔥 Gemini API
 var requestBody = new
 {
-    model = "gpt-4o-mini",
-    messages = new[]
+    contents = new[]
     {
-        new { role = "user", content = prompt }
+        new
+        {
+            parts = new[]
+            {
+                new { text = prompt }
+            }
+        }
     }
 };
 
-var requestJson = JsonSerializer.Serialize(requestBody);
+var json = JsonSerializer.Serialize(requestBody);
 
-var aiRequest = new HttpRequestMessage(HttpMethod.Post, "https://api.openai.com/v1/chat/completions");
-aiRequest.Headers.Add("Authorization", $"Bearer {openAiKey}");
-aiRequest.Content = new StringContent(requestJson, Encoding.UTF8, "application/json");
+var response = await client.PostAsync(
+    $"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={geminiKey}",
+    new StringContent(json, Encoding.UTF8, "application/json")
+);
 
-var aiResponse = await client.SendAsync(aiRequest);
-var aiContent = await aiResponse.Content.ReadAsStringAsync();
+var result = await response.Content.ReadAsStringAsync();
 
-using var doc = JsonDocument.Parse(aiContent);
-var message = doc.RootElement
-    .GetProperty("choices")[0]
-    .GetProperty("message")
-    .GetProperty("content")
-    .GetString();
+using var doc = JsonDocument.Parse(result);
 
-var telegramContent = new FormUrlEncodedContent(new[]
+string message = "Error ❌";
+
+if (doc.RootElement.TryGetProperty("candidates", out var candidates))
+{
+    message = candidates[0]
+        .GetProperty("content")
+        .GetProperty("parts")[0]
+        .GetProperty("text")
+        .GetString();
+}
+
+// إرسال Telegram
+var content = new FormUrlEncodedContent(new[]
 {
     new KeyValuePair<string, string>("chat_id", chatId),
     new KeyValuePair<string, string>("text", message)
 });
 
-await client.PostAsync($"https://api.telegram.org/bot{telegramToken}/sendMessage", telegramContent);
+await client.PostAsync($"https://api.telegram.org/bot{telegramToken}/sendMessage", content);
 
-Console.WriteLine("Sent ✅");
+Console.WriteLine("Sent with Gemini 🚀");
